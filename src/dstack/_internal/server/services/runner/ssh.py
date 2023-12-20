@@ -9,6 +9,7 @@ from dstack._internal.core.errors import SSHError
 from dstack._internal.core.models.runs import JobProvisioningData
 from dstack._internal.core.services.ssh.tunnel import RunnerTunnel
 from dstack._internal.server.services.jobs import get_runner_ports
+from dstack._internal.server.settings import LOCAL_BACKEND_ENABLED
 from dstack._internal.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +33,9 @@ def runner_ssh_tunnel(
             Returns:
                 is successful
             """
+            if LOCAL_BACKEND_ENABLED:
+                port_map = {p: p for p in ports}
+                return func(*args, ports=port_map, **kwargs)
             for attempt in range(retries):
                 last = attempt == retries - 1
                 try:

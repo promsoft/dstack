@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Dict, Optional
 from uuid import UUID
 
+from pydantic import parse_raw_as
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -9,7 +10,7 @@ from sqlalchemy.orm import joinedload
 from dstack._internal.core.models.backends.base import BackendType
 from dstack._internal.core.models.configurations import RegistryAuth
 from dstack._internal.core.models.repos import RemoteRepoCreds
-from dstack._internal.core.models.runs import Job, JobErrorCode, JobStatus, Run
+from dstack._internal.core.models.runs import Job, JobErrorCode, JobSpec, JobStatus, Run
 from dstack._internal.server.db import get_session_ctx
 from dstack._internal.server.models import JobModel, ProjectModel, RepoModel, RunModel
 from dstack._internal.server.services import logs as logs_services
@@ -248,6 +249,7 @@ def _process_provisioning_with_shim(
     Returns:
         is successful
     """
+    job_spec = parse_raw_as(JobSpec, job_model.job_spec_data)
     shim_client = client.ShimClient(port=ports[client.REMOTE_SHIM_PORT])
     resp = shim_client.healthcheck()
     if resp is None:
@@ -259,6 +261,13 @@ def _process_provisioning_with_shim(
         shim_client.registry_auth(
             username=interpolate(registry_auth.username),
             password=interpolate(registry_auth.password),
+            image_name=job_spec.image_name,
+        )
+    else:
+        shim_client.registry_auth(
+            username="",
+            password="",
+            image_name=job_spec.image_name,
         )
     job_model.status = JobStatus.PULLING
     logger.info(*job_log("now is pulling", job_model))

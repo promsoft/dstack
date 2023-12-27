@@ -50,7 +50,7 @@ from dstack._internal.server.services.jobs.configurators.base import (
     get_default_image,
     get_default_python_verison,
 )
-from dstack._internal.server.services.pool import create_pool_model
+from dstack._internal.server.services.pools import create_pool_model, list_project_pool, show_pool
 from dstack._internal.server.services.projects import list_project_models, list_user_project_models
 from dstack._internal.server.utils.common import run_async
 from dstack._internal.utils.logging import get_logger
@@ -78,7 +78,7 @@ async def list_user_runs(
             project=project,
             repo_id=repo_id,
         )
-        runs.extend(project_runs)
+        runs.extend(map(run_model_to_run, project_runs))
     return sorted(runs, key=lambda r: r.submitted_at, reverse=True)
 
 
@@ -86,7 +86,7 @@ async def list_project_runs(
     session: AsyncSession,
     project: ProjectModel,
     repo_id: Optional[str],
-) -> List[Run]:
+) -> List[RunModel]:
     filters = [
         RunModel.project_id == project.id,
         RunModel.deleted == False,
@@ -104,7 +104,7 @@ async def list_project_runs(
         select(RunModel).where(*filters).options(joinedload(RunModel.user))
     )
     run_models = res.scalars().all()
-    return [run_model_to_run(r) for r in run_models]
+    return list(run_models)
 
 
 async def get_run(
@@ -287,10 +287,11 @@ async def submit_run(
     pool_name = (
         DEFAULT_POOL_NAME if run_spec.profile.pool_name is None else run_spec.profile.pool_name
     )
-    pools_result = await session.execute(select(PoolModel).where(PoolModel.name == pool_name))
-    pools = pools_result.scalars().all()
+
+    # create pool
+    pools = (await session.scalars(select(PoolModel).where(PoolModel.name == pool_name))).all()
     if not pools:
-        await create_pool_model(session=session, project=project, name=pool_name)
+        await create_pool_model(session, project, pool_name)
 
     run_model = RunModel(
         id=uuid.uuid4(),
@@ -307,6 +308,7 @@ async def submit_run(
     if run_spec.configuration.type == "service":
         await gateways.register_service_jobs(session, project, run_spec.run_name, jobs)
     for job in jobs:
+        job.job_spec.pool_name = pool_name
         job_model = create_job_model_for_new_submission(
             run_model=run_model,
             job=job,
@@ -473,3 +475,18 @@ def _get_job_submission_cost(job_submission: JobSubmission) -> float:
         return 0
     duration_hours = job_submission.duration.total_seconds() / 3600
     return job_submission.job_provisioning_data.price * duration_hours
+
+
+async def abort_runs_of_pool(session: AsyncSession, project_model: ProjectModel, pool_name: str):
+    runs = await list_project_runs(session, project_model, repo_id=None)
+    active_run_names = []
+    for run_model in runs:
+        if run_model.status.is_finished():
+            continue
+
+        run = run_model_to_run(run_model)
+        run_pool_name = run.run_spec.profile.pool_name
+        if run_pool_name == pool_name:
+            active_run_names.append(run.run_spec.run_name)
+
+    await stop_runs(session, project_model, active_run_names, abort=True)

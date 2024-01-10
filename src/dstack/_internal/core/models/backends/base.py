@@ -12,6 +12,7 @@ class BackendType(str, enum.Enum):
     DATACRUNCH = "datacrunch"
     LAMBDA = "lambda"
     LOCAL = "local"
+    # REMOTE= "remote" # replace for LOCAL
     NEBIUS = "nebius"
     TENSORDOCK = "tensordock"
     VASTAI = "vastai"

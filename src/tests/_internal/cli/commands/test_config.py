@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -5,6 +6,11 @@ import yaml
 from pytest import CaptureFixture
 
 from tests._internal.cli.common import run_dstack_cli
+
+
+def escape_ansi(line):
+    ansi_escape = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
+    return ansi_escape.sub("", line)
 
 
 class TestConfig:
@@ -28,7 +34,7 @@ class TestConfig:
             APIClientMock.assert_called_once_with(base_url="http://127.0.0.1:31313", token="token")
         assert exit_code == 0, capsys.readouterr().out
         assert (
-            capsys.readouterr().out.replace("\n", "")
+            escape_ansi(capsys.readouterr().out.replace("\n", ""))
             == f"Configuration updated at {cli_config_path}."
         )
         assert yaml.load(cli_config_path.read_text(), yaml.FullLoader) == {
